@@ -1,6 +1,7 @@
 import os
 import pandas as pd  # Add pandas import
 from collections import Counter  # Add Counter import
+import random  # Add random import
 from flask import Flask, request, jsonify
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -72,99 +73,109 @@ def fetch_user_history(user_id):
         print(f"Error fetching user history for user_id {user_id}: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
-# --- Basic Content-Based Recommendation Logic ---
-def generate_simple_content_recommendations(user_id, user_workout_exercises_df, user_exercises_details_df, all_exercises_df):
-    """Generates simple content-based recommendations based on most frequent primary muscle group."""
-    if user_exercises_details_df.empty or all_exercises_df.empty:
-        print(f"No history details or all_exercises data for user {user_id}. Recommending top 5 overall exercises.")
-        if not all_exercises_df.empty:
-            if 'id' in all_exercises_df.columns:
-                return all_exercises_df.head(5)['id'].tolist()
-            else:
-                print("Warning: 'id' column missing in all_exercises_df for cold start.")
-                return []
-        else:
-            return []
+# --- Workout Template Generation Logic ---
+def generate_full_body_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=7):
+    """Generates a simple full-body workout template."""
+    print(f"Generating full body template for user {user_id}")
 
-    target_column = 'primaryMuscles'
-    if target_column not in user_exercises_details_df.columns:
-        print(f"Warning: '{target_column}' column not found in user exercise details for user {user_id}.")
-        if not all_exercises_df.empty and 'id' in all_exercises_df.columns:
-            return all_exercises_df.head(5)['id'].tolist()
-        else:
-            return []
-
-    def get_primary_muscle(muscles):
-        if isinstance(muscles, list) and muscles:
-            return muscles[0]
-        elif isinstance(muscles, str):
-            return muscles
+    if all_exercises_df.empty:
+        print("Cannot generate template: all_exercises_df is empty.")
         return None
 
-    user_exercises_details_df['main_muscle'] = user_exercises_details_df[target_column].apply(get_primary_muscle)
-    valid_muscle_groups = user_exercises_details_df['main_muscle'].dropna()
+    # Define target muscle groups for a balanced full-body workout
+    target_groups = {
+        'Chest': 1,
+        'Back': 1,
+        'Shoulders': 1,
+        'Biceps': 1,
+        'Triceps': 1,
+        'Legs': 2,
+    }
+    target_exercise_count = sum(target_groups.values())
 
-    if valid_muscle_groups.empty:
-        print(f"No valid primary muscles found in user {user_id}'s history.")
-        if not all_exercises_df.empty and 'id' in all_exercises_df.columns:
-            return all_exercises_df.head(5)['id'].tolist()
-        else:
-            return []
+    # Get IDs of exercises user has already done
+    user_done_exercise_ids = set()
+    if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns:
+        user_done_exercise_ids = set(user_exercises_details_df['id'])
+        print(f"User {user_id} has done {len(user_done_exercise_ids)} unique exercises.")
 
-    muscle_counts = Counter(valid_muscle_groups)
-    if not muscle_counts:
-        print(f"Muscle counts are empty for user {user_id}.")
-        if not all_exercises_df.empty and 'id' in all_exercises_df.columns:
-            return all_exercises_df.head(5)['id'].tolist()
-        else:
-            return []
-    most_common_muscle_group = muscle_counts.most_common(1)[0][0]
-    print(f"User {user_id}'s most frequent primary muscle: {most_common_muscle_group}")
+    # Filter available exercises: exclude done ones and ensure primaryMuscles exists
+    if 'id' not in all_exercises_df.columns or 'primaryMuscles' not in all_exercises_df.columns:
+        print("Error: 'id' or 'primaryMuscles' missing from all_exercises_df.")
+        return None
 
-    if target_column not in all_exercises_df.columns:
-        print(f"Error: '{target_column}' column not found in all_exercises_df.")
-        return []
-
-    all_exercises_df['main_muscle'] = all_exercises_df[target_column].apply(get_primary_muscle)
-    recommended_exercises = all_exercises_df[
-        all_exercises_df['main_muscle'] == most_common_muscle_group
+    available_exercises = all_exercises_df[
+        ~all_exercises_df['id'].isin(user_done_exercise_ids) &
+        all_exercises_df['primaryMuscles'].notna()
     ].copy()
 
-    if 'id' not in user_exercises_details_df.columns:
-        print("Warning: 'id' column missing in user_exercises_details_df. Cannot exclude done exercises.")
-    else:
-        user_done_exercise_ids = set(user_exercises_details_df['id'])
-        if 'id' in recommended_exercises.columns:
-            recommended_exercises = recommended_exercises[
-                ~recommended_exercises['id'].isin(user_done_exercise_ids)
-            ]
+    if available_exercises.empty:
+        print(f"No available new exercises found for user {user_id}. Cannot generate template.")
+        return None
+
+    # Helper to check if an exercise targets a group
+    def targets_group(exercise_muscles, group_name):
+        if not exercise_muscles: return False
+        if isinstance(exercise_muscles, list):
+            return any(group_name.lower() in m.lower() for m in exercise_muscles)
+        elif isinstance(exercise_muscles, str):
+            return group_name.lower() in exercise_muscles.lower()
+        return False
+
+    selected_exercises = []
+    selected_ids = set()
+
+    # Try to pick exercises for each target group
+    for group, count in target_groups.items():
+        group_exercises = available_exercises[
+            available_exercises['primaryMuscles'].apply(lambda m: targets_group(m, group))
+        ]
+
+        group_exercises = group_exercises[~group_exercises['id'].isin(selected_ids)]
+
+        if not group_exercises.empty:
+            num_to_select = min(count, len(group_exercises))
+            chosen = group_exercises.sample(n=num_to_select)
+            selected_exercises.extend(chosen.to_dict('records'))
+            selected_ids.update(chosen['id'].tolist())
         else:
-            print("Warning: 'id' column missing in recommended_exercises. Cannot exclude done exercises.")
+            print(f"Warning: No new exercises found for target group: {group}")
 
-    if 'id' not in recommended_exercises.columns:
-        print("Error: 'id' column missing in final recommended_exercises DataFrame.")
-        recommendations = []
-    else:
-        recommendations = recommended_exercises['id'].tolist()
+    # Fill remaining slots randomly
+    current_count = len(selected_ids)
+    if current_count < num_exercises:
+        needed = num_exercises - current_count
+        remaining_available = available_exercises[~available_exercises['id'].isin(selected_ids)]
+        if len(remaining_available) >= needed:
+            print(f"Filling {needed} remaining slots randomly.")
+            filler = remaining_available.sample(n=needed)
+            selected_exercises.extend(filler.to_dict('records'))
+            selected_ids.update(filler['id'].tolist())
+        else:
+            print(f"Warning: Could only find {len(remaining_available)} extra exercises.")
+            selected_exercises.extend(remaining_available.to_dict('records'))
+            selected_ids.update(remaining_available['id'].tolist())
 
-    if not recommendations and not all_exercises_df.empty and 'id' in all_exercises_df.columns:
-        print(f"User {user_id} has done all exercises for {most_common_muscle_group} or no new matches found. Returning top 5 overall as fallback.")
-        fallback_recs = all_exercises_df
-        if 'id' in user_exercises_details_df.columns:
-            user_done_exercise_ids = set(user_exercises_details_df['id'])
-            fallback_recs = fallback_recs[~fallback_recs['id'].isin(user_done_exercise_ids)]
+    if not selected_ids:
+        print("Failed to select any exercises for the template.")
+        return None
 
-        return fallback_recs.head(5)['id'].tolist()
-    elif not recommendations:
-        return []
+    final_exercise_ids = [ex['id'] for ex in selected_exercises]
+    random.shuffle(final_exercise_ids)
 
-    print(f"Recommendations for user {user_id}: {recommendations[:10]}")
-    return recommendations[:10]
+    template = {
+        "template_name": "Recommended Full Body Workout",
+        "focus": "General Full Body",
+        "exercises": final_exercise_ids[:num_exercises]
+    }
 
-# --- Recommendation Endpoint ---
-@app.route('/recommendations/<user_id>', methods=['GET'])
-def get_recommendations(user_id):
-    print(f"Received request for user_id: {user_id}")
+    print(f"Generated template: {template}")
+    return template
+
+# --- Recommendation Endpoint (Updated for Templates) ---
+@app.route('/recommendations/workout/<user_id>', methods=['GET'])
+def get_workout_recommendations(user_id):
+    print(f"Received workout recommendation request for user_id: {user_id}")
     if not user_id:
         return jsonify({"error": "User ID is required"}), 400
 
@@ -175,18 +186,23 @@ def get_recommendations(user_id):
         print("Error: Could not fetch master exercise list from Supabase.")
         return jsonify({"error": "Could not retrieve exercise data. Cannot generate recommendations."}), 500
 
-    recommended_ids = generate_simple_content_recommendations(
+    recommended_template = generate_full_body_template(
         user_id,
-        user_workout_exercises_df,
         user_exercises_details_df,
-        all_exercises_df
+        all_exercises_df,
+        num_exercises=7
     )
 
-    if not recommended_ids:
-        print(f"No recommendations could be generated for user {user_id}.")
-        return jsonify({"message": "No specific recommendations available at this time.", "recommendations": []}), 200
+    if not recommended_template:
+        print(f"No workout template could be generated for user {user_id}.")
+        return jsonify({"message": "No specific workout recommendations available at this time.", "recommendations": []}), 200
 
-    return jsonify({"recommendations": recommended_ids})
+    return jsonify({"recommendations": [recommended_template]})
+
+# Update the old endpoint route to avoid conflict or remove it
+@app.route('/recommendations/<user_id>', methods=['GET'])
+def get_recommendations_old(user_id):
+    return jsonify({"error": "This endpoint is deprecated. Use /recommendations/workout/<user_id>"}), 404
 
 if __name__ == '__main__':
     app.run(debug=True)  # debug=True for development only
