@@ -74,44 +74,10 @@ def fetch_user_history(user_id):
         return pd.DataFrame(), pd.DataFrame()
 
 # --- Workout Template Generation Logic ---
-def generate_full_body_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=7):
-    """Generates a simple full-body workout template."""
-    print(f"Generating full body template for user {user_id}")
-
-    if all_exercises_df.empty:
-        print("Cannot generate template: all_exercises_df is empty.")
-        return None
-
-    # Define target muscle groups for a balanced full-body workout
-    target_groups = {
-        'Chest': 1,
-        'Back': 1,
-        'Shoulders': 1,
-        'Biceps': 1,
-        'Triceps': 1,
-        'Legs': 2,
-    }
-    target_exercise_count = sum(target_groups.values())
-
-    # Get IDs of exercises user has already done
-    user_done_exercise_ids = set()
-    if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns:
-        user_done_exercise_ids = set(user_exercises_details_df['id'])
-        print(f"User {user_id} has done {len(user_done_exercise_ids)} unique exercises.")
-
-    # Filter available exercises: exclude done ones and ensure primaryMuscles exists
-    if 'id' not in all_exercises_df.columns or 'primaryMuscles' not in all_exercises_df.columns:
-        print("Error: 'id' or 'primaryMuscles' missing from all_exercises_df.")
-        return None
-
-    available_exercises = all_exercises_df[
-        ~all_exercises_df['id'].isin(user_done_exercise_ids) &
-        all_exercises_df['primaryMuscles'].notna()
-    ].copy()
-
-    if available_exercises.empty:
-        print(f"No available new exercises found for user {user_id}. Cannot generate template.")
-        return None
+def _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises_target):
+    """Helper function to select exercises based on target muscle groups."""
+    selected_exercises = []
+    selected_ids = set()
 
     # Helper to check if an exercise targets a group
     def targets_group(exercise_muscles, group_name):
@@ -122,15 +88,11 @@ def generate_full_body_template(user_id, user_exercises_details_df, all_exercise
             return group_name.lower() in exercise_muscles.lower()
         return False
 
-    selected_exercises = []
-    selected_ids = set()
-
     # Try to pick exercises for each target group
     for group, count in target_groups.items():
         group_exercises = available_exercises[
             available_exercises['primaryMuscles'].apply(lambda m: targets_group(m, group))
         ]
-
         group_exercises = group_exercises[~group_exercises['id'].isin(selected_ids)]
 
         if not group_exercises.empty:
@@ -141,10 +103,10 @@ def generate_full_body_template(user_id, user_exercises_details_df, all_exercise
         else:
             print(f"Warning: No new exercises found for target group: {group}")
 
-    # Fill remaining slots randomly
+    # Fill remaining slots randomly if needed
     current_count = len(selected_ids)
-    if current_count < num_exercises:
-        needed = num_exercises - current_count
+    if current_count < num_exercises_target:
+        needed = num_exercises_target - current_count
         remaining_available = available_exercises[~available_exercises['id'].isin(selected_ids)]
         if len(remaining_available) >= needed:
             print(f"Filling {needed} remaining slots randomly.")
@@ -157,49 +119,149 @@ def generate_full_body_template(user_id, user_exercises_details_df, all_exercise
             selected_ids.update(remaining_available['id'].tolist())
 
     if not selected_ids:
-        print("Failed to select any exercises for the template.")
-        return None
+        return None # Failed to select any exercises
 
     final_exercise_ids = [ex['id'] for ex in selected_exercises]
     random.shuffle(final_exercise_ids)
+    return final_exercise_ids[:num_exercises_target]
 
+def _create_template(name, focus, exercise_ids):
+    """Helper function to create the template dictionary."""
+    if not exercise_ids:
+        return None
     template = {
-        "template_name": "Recommended Full Body Workout",
-        "focus": "General Full Body",
-        "exercises": final_exercise_ids[:num_exercises]
+        "template_name": name,
+        "focus": focus,
+        "exercises": exercise_ids
     }
-
     print(f"Generated template: {template}")
     return template
 
-# --- Recommendation Endpoint (Updated for Templates) ---
+def generate_full_body_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=7):
+    """Generates a simple full-body workout template."""
+    print(f"Attempting to generate Full Body template for user {user_id}")
+    if all_exercises_df.empty: return None
+    user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
+    if 'id' not in all_exercises_df.columns or 'primaryMuscles' not in all_exercises_df.columns: return None
+    available_exercises = all_exercises_df[~all_exercises_df['id'].isin(user_done_exercise_ids) & all_exercises_df['primaryMuscles'].notna()].copy()
+    if available_exercises.empty: return None
+
+    target_groups = {
+        'Chest': 1,
+        'Back': 1,
+        'Shoulders': 1,
+        'Biceps': 1,
+        'Triceps': 1,
+        'Legs': 2, # Covers Quads, Hamstrings, Glutes etc.
+    }
+
+    exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
+    return _create_template("Recommended Full Body", "General Full Body", exercise_ids)
+
+def generate_push_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=6):
+    """Generates a push day workout template (Chest, Shoulders, Triceps)."""
+    print(f"Attempting to generate Push template for user {user_id}")
+    if all_exercises_df.empty: return None
+    user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
+    if 'id' not in all_exercises_df.columns or 'primaryMuscles' not in all_exercises_df.columns: return None
+    available_exercises = all_exercises_df[~all_exercises_df['id'].isin(user_done_exercise_ids) & all_exercises_df['primaryMuscles'].notna()].copy()
+    if available_exercises.empty: return None
+
+    target_groups = {
+        'Chest': 2,
+        'Shoulders': 2,
+        'Triceps': 2,
+    }
+
+    exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
+    return _create_template("Recommended Push Day", "Chest, Shoulders, Triceps", exercise_ids)
+
+def generate_pull_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=6):
+    """Generates a pull day workout template (Back, Biceps)."""
+    print(f"Attempting to generate Pull template for user {user_id}")
+    if all_exercises_df.empty: return None
+    user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
+    if 'id' not in all_exercises_df.columns or 'primaryMuscles' not in all_exercises_df.columns: return None
+    available_exercises = all_exercises_df[~all_exercises_df['id'].isin(user_done_exercise_ids) & all_exercises_df['primaryMuscles'].notna()].copy()
+    if available_exercises.empty: return None
+
+    target_groups = {
+        'Back': 4, # Includes Lats, Traps, Rhomboids etc.
+        'Biceps': 2,
+    }
+
+    exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
+    return _create_template("Recommended Pull Day", "Back, Biceps", exercise_ids)
+
+def generate_legs_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=6):
+    """Generates a leg day workout template."""
+    print(f"Attempting to generate Legs template for user {user_id}")
+    if all_exercises_df.empty: return None
+    user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
+    if 'id' not in all_exercises_df.columns or 'primaryMuscles' not in all_exercises_df.columns: return None
+    available_exercises = all_exercises_df[~all_exercises_df['id'].isin(user_done_exercise_ids) & all_exercises_df['primaryMuscles'].notna()].copy()
+    if available_exercises.empty: return None
+
+    target_groups = {
+        'Quadriceps': 2,
+        'Hamstrings': 2,
+        'Glutes': 1,
+        'Calves': 1,
+        'Legs': 1 # Add one general leg exercise if others are sparse
+    }
+
+    exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
+    return _create_template("Recommended Leg Day", "Quadriceps, Hamstrings, Glutes, Calves", exercise_ids)
+
+# --- Recommendation Endpoint (Updated for Multiple Templates) ---
 @app.route('/recommendations/workout/<user_id>', methods=['GET'])
 def get_workout_recommendations(user_id):
     print(f"Received workout recommendation request for user_id: {user_id}")
     if not user_id:
         return jsonify({"error": "User ID is required"}), 400
 
+    # --- Fetch data ---
     all_exercises_df = fetch_all_exercises()
     user_workout_exercises_df, user_exercises_details_df = fetch_user_history(user_id)
 
     if all_exercises_df.empty:
-        print("Error: Could not fetch master exercise list from Supabase.")
-        return jsonify({"error": "Could not retrieve exercise data. Cannot generate recommendations."}), 500
+         print("Error: Could not fetch master exercise list from Supabase.")
+         return jsonify({"error": "Could not retrieve exercise data. Cannot generate recommendations."}), 500
 
-    recommended_template = generate_full_body_template(
-        user_id,
-        user_exercises_details_df,
-        all_exercises_df,
-        num_exercises=7
-    )
+    # --- Generate multiple workout template recommendations ---
+    possible_templates = []
 
-    if not recommended_template:
-        print(f"No workout template could be generated for user {user_id}.")
+    # List of generator functions to try
+    template_generators = [
+        generate_full_body_template,
+        generate_push_template,
+        generate_pull_template,
+        generate_legs_template,
+    ]
+
+    # Shuffle the generators to provide variety in the order they appear if fewer than target are generated
+    random.shuffle(template_generators)
+
+    for generator in template_generators:
+        template = generator(
+            user_id,
+            user_exercises_details_df,
+            all_exercises_df
+        )
+        if template:
+            possible_templates.append(template)
+
+    # Select desired number of templates (e.g., 3 to 5)
+    num_to_return = min(len(possible_templates), random.randint(3, 5)) # Return 3-5 if available
+    recommended_templates = random.sample(possible_templates, num_to_return) if possible_templates else []
+
+    if not recommended_templates:
+        print(f"No workout templates could be generated for user {user_id}.")
         return jsonify({"message": "No specific workout recommendations available at this time.", "recommendations": []}), 200
 
-    return jsonify({"recommendations": [recommended_template]})
+    # Return the selected templates
+    return jsonify({"recommendations": recommended_templates})
 
-# Update the old endpoint route to avoid conflict or remove it
 @app.route('/recommendations/<user_id>', methods=['GET'])
 def get_recommendations_old(user_id):
     return jsonify({"error": "This endpoint is deprecated. Use /recommendations/workout/<user_id>"}), 404
