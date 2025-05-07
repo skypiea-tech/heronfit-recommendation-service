@@ -558,4 +558,4 @@ def get_recommendations_old(user_id):
     return jsonify({"error": "This endpoint is deprecated. Use /recommendations/workout/<user_id>"}), 404
 
 if __name__ == '__main__':
-    app.run(debug=True)  # debug=True for development only
+    app.run(host='0.0.0.0', port=5000, debug=True)  # Allow external connections for development
