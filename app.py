@@ -213,6 +213,101 @@ def generate_legs_template(user_id, user_exercises_details_df, all_exercises_df,
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
     return _create_template("Recommended Leg Day", "Quadriceps, Hamstrings, Glutes, Calves", exercise_ids)
 
+# --- Collaborative Filtering Functions ---
+def fetch_exercise_frequencies_from_other_users(exclude_user_id_str):
+    """
+    Fetches exercise frequencies from all users, excluding the specified user.
+    Returns a DataFrame with 'exercise_id' and 'frequency'.
+    """
+    try:
+        workouts_resp = supabase.table('workouts').select('id, user_id').execute()
+        if not workouts_resp.data:
+            print("No workouts found at all for collaborative filtering.")
+            return pd.DataFrame()
+        workouts_df = pd.DataFrame(workouts_resp.data)
+
+        other_users_workouts_df = workouts_df[workouts_df['user_id'] != exclude_user_id_str]
+        if other_users_workouts_df.empty:
+            print(f"No workouts found for users other than {exclude_user_id_str}")
+            return pd.DataFrame()
+
+        other_user_workout_ids = other_users_workouts_df['id'].tolist()
+        if not other_user_workout_ids:
+             print(f"No workout IDs found for other users.")
+             return pd.DataFrame()
+
+        all_workout_exercises_resp = supabase.table('workout_exercises').select('exercise_id, workout_id').execute()
+        if not all_workout_exercises_resp.data:
+            print("No workout_exercises found at all for collaborative filtering.")
+            return pd.DataFrame()
+        all_workout_exercises_df = pd.DataFrame(all_workout_exercises_resp.data)
+
+        relevant_workout_exercises_df = all_workout_exercises_df[
+            all_workout_exercises_df['workout_id'].isin(other_user_workout_ids)
+        ]
+
+        if relevant_workout_exercises_df.empty:
+            print(f"No exercises found in workouts of other users.")
+            return pd.DataFrame()
+        
+        if 'exercise_id' not in relevant_workout_exercises_df.columns:
+            print("Error: 'exercise_id' column missing from other users' workout exercises.")
+            return pd.DataFrame()
+
+        exercise_counts = relevant_workout_exercises_df['exercise_id'].value_counts().reset_index()
+        exercise_counts.columns = ['exercise_id', 'frequency']
+        return exercise_counts
+
+    except Exception as e:
+        print(f"Error fetching exercise frequencies from other users: {e}")
+        return pd.DataFrame()
+
+def generate_collaborative_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=5):
+    """Generates a workout template based on exercises popular among other users."""
+    print(f"Attempting to generate Collaborative template for user {user_id}")
+
+    other_users_exercise_freq_df = fetch_exercise_frequencies_from_other_users(user_id)
+
+    if other_users_exercise_freq_df.empty or 'exercise_id' not in other_users_exercise_freq_df.columns:
+        print(f"No exercise frequency data found from other users for collaborative filtering for user {user_id}.")
+        return None
+
+    user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
+
+    candidate_exercises_df = other_users_exercise_freq_df[
+        ~other_users_exercise_freq_df['exercise_id'].isin(user_done_exercise_ids)
+    ]
+
+    if 'id' not in all_exercises_df.columns:
+        print("Error: 'id' column missing in all_exercises_df. Cannot validate collaborative candidates.")
+        return None
+    
+    all_valid_exercise_ids = set(all_exercises_df['id'])
+    candidate_exercises_df = candidate_exercises_df[
+        candidate_exercises_df['exercise_id'].isin(all_valid_exercise_ids)
+    ]
+
+    if candidate_exercises_df.empty:
+        print(f"No new, valid collaborative exercises found for user {user_id} after filtering.")
+        return None
+
+    if 'frequency' not in candidate_exercises_df.columns:
+        print("Error: 'frequency' column missing in candidate_exercises_df for collaborative sorting.")
+        return None
+
+    selected_exercises_df = candidate_exercises_df.sort_values(by='frequency', ascending=False).head(num_exercises)
+    collaborative_exercise_ids = selected_exercises_df['exercise_id'].tolist()
+
+    if not collaborative_exercise_ids:
+        print(f"Could not select any collaborative exercises for user {user_id}.")
+        return None
+
+    return _create_template(
+        "Popular With Others", 
+        "Community Favorites", 
+        collaborative_exercise_ids
+    )
+
 # --- Recommendation Endpoint (Updated for Multiple Templates) ---
 @app.route('/recommendations/workout/<user_id>', methods=['GET'])
 def get_workout_recommendations(user_id):
@@ -232,7 +327,7 @@ def get_workout_recommendations(user_id):
     possible_templates = []
 
     # List of generator functions to try
-    template_generators = [
+    content_template_generators = [
         generate_full_body_template,
         generate_push_template,
         generate_pull_template,
@@ -240,9 +335,9 @@ def get_workout_recommendations(user_id):
     ]
 
     # Shuffle the generators to provide variety in the order they appear if fewer than target are generated
-    random.shuffle(template_generators)
+    random.shuffle(content_template_generators) # Shuffle content-based ones first
 
-    for generator in template_generators:
+    for generator in content_template_generators:
         template = generator(
             user_id,
             user_exercises_details_df,
@@ -251,8 +346,21 @@ def get_workout_recommendations(user_id):
         if template:
             possible_templates.append(template)
 
+    # --- Generate collaborative filtering recommendations ---
+    collaborative_template = generate_collaborative_template(
+        user_id,
+        user_exercises_details_df,
+        all_exercises_df,
+        num_exercises=5 # Specify number of collaborative exercises
+    )
+    if collaborative_template:
+        possible_templates.append(collaborative_template)
+
+    # Shuffle all templates together before sampling
+    random.shuffle(possible_templates)
+
     # Select desired number of templates (e.g., 3 to 5)
-    num_to_return = min(len(possible_templates), random.randint(3, 5)) # Return 3-5 if available
+    num_to_return = min(len(possible_templates), random.randint(3, 5))
     recommended_templates = random.sample(possible_templates, num_to_return) if possible_templates else []
 
     if not recommended_templates:
