@@ -22,17 +22,28 @@ if not url or not key:
 
 supabase: Client = create_client(url, key)
 
+# Simple in-memory cache for exercises
+cached_exercises_df = None
+
 @app.route('/')
 def home():
     return "HeronFit Recommendation Engine is running!"
 
 # --- Data Fetching Functions ---
 def fetch_all_exercises():
-    """Fetches all exercises from the Supabase 'exercises' table."""
+    """Fetches all exercises from the Supabase 'exercises' table, using cache."""
+    global cached_exercises_df
+    if cached_exercises_df is not None:
+        print("Using cached exercises data.")
+        return cached_exercises_df
+
+    print("Fetching exercises data from Supabase...")
     try:
         response = supabase.table('exercises').select('id, name, primaryMuscles, equipment, category, level').execute()
         if response.data:
-            return pd.DataFrame(response.data)
+            cached_exercises_df = pd.DataFrame(response.data)
+            print(f"Fetched and cached {len(cached_exercises_df)} exercises.")
+            return cached_exercises_df
         else:
             print("No exercises found or error fetching exercises.")
             return pd.DataFrame()
@@ -56,7 +67,7 @@ def fetch_user_history(user_id):
         workout_exercises_response = supabase.table('workout_exercises').select('exercise_id, workout_id').in_('workout_id', workout_ids).execute()
         if not workout_exercises_response.data:
             print(f"No workout exercises found for user_id: {user_id}")
-            return pd.DataFrame(), pd.DataFrame()
+            return pd.DataFrame(workout_exercises_response.data), pd.DataFrame()
 
         exercise_ids = list(set([we['exercise_id'] for we in workout_exercises_response.data if we.get('exercise_id')]))
         if not exercise_ids:
@@ -373,19 +384,15 @@ def fetch_exercise_frequencies_from_other_users(exclude_user_id_str, user_goal):
             print(f"No workout IDs found for other users with goal {user_goal}.")
             return pd.DataFrame()
 
-        all_workout_exercises_resp = supabase.table('workout_exercises').select('exercise_id, workout_id').execute()
-        if not all_workout_exercises_resp.data:
-            print("No workout_exercises found at all for collaborative filtering.")
-            return pd.DataFrame()
-        all_workout_exercises_df = pd.DataFrame(all_workout_exercises_resp.data)
+        # Now fetch workout exercises only for those workouts
+        workout_exercises_resp = supabase.table('workout_exercises').select('exercise_id, workout_id')\
+             .in_('workout_id', other_user_workout_ids)\
+             .execute()
 
-        relevant_workout_exercises_df = all_workout_exercises_df[
-            all_workout_exercises_df['workout_id'].isin(other_user_workout_ids)
-        ]
-
-        if relevant_workout_exercises_df.empty:
+        if not workout_exercises_resp.data:
             print(f"No exercises found in workouts of other users with goal {user_goal}.")
             return pd.DataFrame()
+        relevant_workout_exercises_df = pd.DataFrame(workout_exercises_resp.data)
 
         if 'exercise_id' not in relevant_workout_exercises_df.columns:
             print("Error: 'exercise_id' column missing from other users' workout exercises.")
@@ -518,20 +525,16 @@ def fetch_exercise_frequencies_with_time_filter(exclude_user_id_str, start_date_
             print(f"No workout IDs found for other users with goal {user_goal} in the time window.")
             return pd.DataFrame()
 
-        # Fetch all workout_exercises
-        all_workout_exercises_resp = supabase.table('workout_exercises').select('exercise_id, workout_id').execute()
-        if not all_workout_exercises_resp.data:
-            print("No workout_exercises found at all for time-filtered collaborative filtering.")
-            return pd.DataFrame()
-        all_workout_exercises_df = pd.DataFrame(all_workout_exercises_resp.data)
+        # Fetch workout exercises for those workouts
+        workout_exercises_resp = supabase.table('workout_exercises').select('exercise_id, workout_id')\
+            .in_('workout_id', other_user_workout_ids)\
+            .execute()
 
-        relevant_workout_exercises_df = all_workout_exercises_df[
-            all_workout_exercises_df['workout_id'].isin(other_user_workout_ids)
-        ]
-
-        if relevant_workout_exercises_df.empty:
+        if not workout_exercises_resp.data:
             print(f"No exercises found in workouts of other users with goal {user_goal} within the time window.")
             return pd.DataFrame()
+        relevant_workout_exercises_df = pd.DataFrame(workout_exercises_resp.data)
+
 
         if 'exercise_id' not in relevant_workout_exercises_df.columns:
             print("Error: 'exercise_id' column missing from other users' workout exercises (time-filtered).")
@@ -621,7 +624,7 @@ def get_workout_recommendations(user_id):
         return jsonify({"error": "User ID is required"}), 400
 
     # --- Fetch data ---
-    all_exercises_df = fetch_all_exercises()
+    all_exercises_df = fetch_all_exercises() # This function now uses the cache
     user_workout_exercises_df, user_exercises_details_df = fetch_user_history(user_id)
     user_goal = fetch_user_goal(user_id) # Fetch the user's goal
 
