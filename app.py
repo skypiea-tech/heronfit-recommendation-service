@@ -405,62 +405,45 @@ def generate_collaborative_template(user_id, user_exercises_details_df, all_exer
 
     other_users_exercise_freq_df = fetch_exercise_frequencies_from_other_users(user_id, user_goal) # Pass the user_goal
 
-    if other_users_exercise_freq_df.empty or 'exercise_id' not in other_users_exercise_freq_df.columns:
-        print(f"No exercise frequency data found from other users (with goal {user_goal}) for collaborative filtering for user {user_id}.")
-        return None
-
     user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
 
-    candidate_exercises_df = other_users_exercise_freq_df[
-        ~other_users_exercise_freq_df['exercise_id'].isin(user_done_exercise_ids)
-    ]
+    candidate_exercises_df = pd.DataFrame()
+    if not other_users_exercise_freq_df.empty and 'exercise_id' in other_users_exercise_freq_df.columns:
+        candidate_exercises_df = other_users_exercise_freq_df[
+            ~other_users_exercise_freq_df['exercise_id'].isin(user_done_exercise_ids)
+        ]
 
-    if 'id' not in all_exercises_df.columns:
-        print("Error: 'id' column missing in all_exercises_df. Cannot validate collaborative candidates.")
-        return None
+    collaborative_exercise_ids = []
+    template_name = "Popular With Others"
+    template_focus = "Community Favorites"
 
-    all_valid_exercise_ids = set(all_exercises_df['id'])
-    candidate_exercises_df = candidate_exercises_df[
-        candidate_exercises_df['exercise_id'].isin(all_valid_exercise_ids)
-    ]
+    if not candidate_exercises_df.empty and 'frequency' in candidate_exercises_df.columns:
+        selected_exercises_df = candidate_exercises_df.sort_values(by='frequency', ascending=False).head(num_exercises)
+        collaborative_exercise_ids = selected_exercises_df['exercise_id'].tolist()
+        template_name = "Popular With Others (Same Goal)" if user_goal else "Popular With Others"
+        template_focus = f"Community Favorites ({user_goal})" if user_goal else "Community Favorites"
 
-    if candidate_exercises_df.empty:
-        print(f"No new, valid collaborative exercises found for user {user_id} (with goal {user_goal}) after filtering.")
-        return None
+        if len(collaborative_exercise_ids) < num_exercises:
+            needed_more = num_exercises - len(collaborative_exercise_ids)
+            print(f"Collaborative selection yielded {len(collaborative_exercise_ids)} exercises, needing {needed_more} more for target of {num_exercises}.")
+            # Fallback/Filler logic - will be handled below to avoid repetition
 
-    if 'frequency' not in candidate_exercises_df.columns:
-        print("Error: 'frequency' column missing in candidate_exercises_df for collaborative sorting.")
-        return None
-
-    selected_exercises_df = candidate_exercises_df.sort_values(by='frequency', ascending=False).head(num_exercises)
-    collaborative_exercise_ids = selected_exercises_df['exercise_id'].tolist()
-
-    template_name = "Popular With Others (Same Goal)" if user_goal else "Popular With Others"
-    template_focus = f"Community Favorites ({user_goal})" if user_goal else "Community Favorites"
-
-    if len(collaborative_exercise_ids) < num_exercises:
-        needed_more = num_exercises - len(collaborative_exercise_ids)
-        print(f"Collaborative selection yielded {len(collaborative_exercise_ids)} exercises, needing {needed_more} more for target of {num_exercises}.")
-
-        # Prepare IDs already selected or done by user to exclude them from random fillers
-        ids_to_exclude_from_filler = set(collaborative_exercise_ids).union(user_done_exercise_ids)
-
+    if not collaborative_exercise_ids:
+        print(f"No collaborative exercises found for user {user_id} (with goal {user_goal}). Falling back to random selection.")
+        # Fallback: Select random exercises if no collaborative candidates found
+        ids_to_exclude_from_filler = user_done_exercise_ids
         if 'id' in all_exercises_df.columns:
-            available_for_filler_df = all_exercises_df[
-                ~all_exercises_df['id'].isin(ids_to_exclude_from_filler)
-            ]
-
+            available_for_filler_df = all_exercises_df[~all_exercises_df['id'].isin(ids_to_exclude_from_filler)]
             if not available_for_filler_df.empty:
-                num_to_sample = min(needed_more, len(available_for_filler_df))
+                num_to_sample = min(num_exercises, len(available_for_filler_df))
                 if num_to_sample > 0:
                     filler_exercises_df = available_for_filler_df.sample(n=num_to_sample)
-                    filler_exercise_ids = filler_exercises_df['id'].tolist()
-                    collaborative_exercise_ids.extend(filler_exercise_ids)
-                    print(f"Added {len(filler_exercise_ids)} random filler exercises.")
-                    template_name = f"Popular With Others ({user_goal} & New Picks)" if user_goal else "Community & New Picks"
-                    template_focus = f"Popular ({user_goal}) & Randomly Added" if user_goal else "Popular & Randomly Added"
+                    collaborative_exercise_ids = filler_exercises_df['id'].tolist()
+                    print(f"Added {len(collaborative_exercise_ids)} random filler exercises as fallback.")
+                    template_name = "Community Picks (General)" # Indicate these are general picks
+                    template_focus = "Diverse Exercises"
                 else:
-                    print("No filler exercises could be sampled (num_to_sample was 0).")
+                    print("No exercises available for random filling (num_to_sample was 0).")
             else:
                 print("No exercises available for random filling after exclusions.")
         else:
@@ -468,13 +451,20 @@ def generate_collaborative_template(user_id, user_exercises_details_df, all_exer
 
 
     if not collaborative_exercise_ids:
-        print(f"Could not select any collaborative exercises for user {user_id}, even after trying fillers.")
+        print(f"Could not select any collaborative exercises for user {user_id}, even after fallback.")
         return None
+
+    # Ensure we return the target number of exercises if possible
+    final_ids_for_template = collaborative_exercise_ids[:num_exercises]
+
+    if not final_ids_for_template:
+         print(f"Final list of collaborative exercise IDs is empty for user {user_id}.")
+         return None
 
     return _create_template(
         template_name,
         template_focus,
-        collaborative_exercise_ids
+        final_ids_for_template
     )
 
 # --- Time-Filtered Collaborative Filtering Functions ---
@@ -566,68 +556,62 @@ def generate_popular_recent_template(user_id, user_exercises_details_df, all_exe
 
     recent_exercise_freq_df = fetch_exercise_frequencies_with_time_filter(user_id, start_date_iso, end_date_iso, user_goal) # Pass the user_goal
 
-    if recent_exercise_freq_df.empty or 'exercise_id' not in recent_exercise_freq_df.columns:
-        print(f"No recent exercise frequency data found for '{template_title_base}' for user {user_id} (with goal {user_goal}).")
-        return None
-
     user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
 
-    candidate_exercises_df = recent_exercise_freq_df[
-        ~recent_exercise_freq_df['exercise_id'].isin(user_done_exercise_ids)
-    ]
+    candidate_exercises_df = pd.DataFrame()
+    if not recent_exercise_freq_df.empty and 'exercise_id' in recent_exercise_freq_df.columns:
+         candidate_exercises_df = recent_exercise_freq_df[
+            ~recent_exercise_freq_df['exercise_id'].isin(user_done_exercise_ids)
+        ]
 
-    if 'id' not in all_exercises_df.columns:
-        print(f"Error: 'id' column missing in all_exercises_df. Cannot validate for '{template_title_base}'.")
-        return None
-
-    all_valid_exercise_ids = set(all_exercises_df['id'])
-    candidate_exercises_df = candidate_exercises_df[
-        candidate_exercises_df['exercise_id'].isin(all_valid_exercise_ids)
-    ]
-
-    if candidate_exercises_df.empty:
-        print(f"No new, valid recent exercises for '{template_title_base}' for user {user_id} (with goal {user_goal}) after filtering.")
-        return None
-
-    if 'frequency' not in candidate_exercises_df.columns:
-        print(f"Error: 'frequency' column missing for '{template_title_base}' sorting.")
-        return None
-
-    selected_exercises_df = candidate_exercises_df.sort_values(by='frequency', ascending=False).head(num_exercises)
-    final_exercise_ids = selected_exercises_df['exercise_id'].tolist()
-
+    final_exercise_ids = []
     template_name = template_title_base + (f" ({user_goal})" if user_goal else "")
     template_focus = template_focus_base + (f" ({user_goal})" if user_goal else "")
 
-    if len(final_exercise_ids) < num_exercises:
-        needed_more = num_exercises - len(final_exercise_ids)
-        print(f"Recent popular selection for '{template_title_base}' yielded {len(final_exercise_ids)}, needing {needed_more} more.")
 
-        ids_to_exclude_from_filler = set(final_exercise_ids).union(user_done_exercise_ids)
+    if not candidate_exercises_df.empty and 'frequency' in candidate_exercises_df.columns:
+        selected_exercises_df = candidate_exercises_df.sort_values(by='frequency', ascending=False).head(num_exercises)
+        final_exercise_ids = selected_exercises_df['exercise_id'].tolist()
+
+        if len(final_exercise_ids) < num_exercises:
+            needed_more = num_exercises - len(final_exercise_ids)
+            print(f"Recent popular selection for '{template_title_base}' yielded {len(final_exercise_ids)}, needing {needed_more} more.")
+            # Fallback/Filler logic - will be handled below to avoid repetition
+
+    if not final_exercise_ids:
+        print(f"No recent collaborative exercises found for user {user_id} (with goal {user_goal}). Falling back to random selection.")
+        # Fallback: Select random exercises if no collaborative candidates found
+        ids_to_exclude_from_filler = user_done_exercise_ids
         if 'id' in all_exercises_df.columns:
             available_for_filler_df = all_exercises_df[~all_exercises_df['id'].isin(ids_to_exclude_from_filler)]
             if not available_for_filler_df.empty:
-                num_to_sample = min(needed_more, len(available_for_filler_df))
+                num_to_sample = min(num_exercises, len(available_for_filler_df))
                 if num_to_sample > 0:
                     filler_exercises_df = available_for_filler_df.sample(n=num_to_sample)
-                    filler_ids = filler_exercises_df['id'].tolist()
-                    final_exercise_ids.extend(filler_ids)
-                    print(f"Added {len(filler_ids)} random filler exercises to '{template_title_base}'.")
-                    template_name = f"{template_title_base} & New Ideas" + (f" ({user_goal})" if user_goal else "")
-                    template_focus = f"{template_focus_base} & Randomly Added" + (f" ({user_goal})" if user_goal else "")
-
+                    final_exercise_ids = filler_exercises_df['id'].tolist()
+                    print(f"Added {len(final_exercise_ids)} random filler exercises as fallback for '{template_title_base}'.")
+                    template_name = f"{template_title_base} (General Picks)" # Indicate these are general picks
+                    template_focus = "Diverse Exercises"
                 else:
-                    print("No filler exercises could be sampled (num_to_sample was 0).")
+                    print("No exercises available for random filling (num_to_sample was 0).")
             else:
-                print(f"No exercises available for random filling for '{template_title_base}'.")
+                print(f"No exercises available for random filling for '{template_title_base}' after exclusions.")
         else:
             print(f"Could not add fillers to '{template_title_base}': 'id' column missing in all_exercises_df.")
 
+
     if not final_exercise_ids:
-        print(f"Could not select any exercises for '{template_title_base}' for user {user_id}, even after fillers.")
+        print(f"Could not select any exercises for '{template_title_base}' for user {user_id}, even after fallback.")
         return None
 
-    return _create_template(template_name, template_focus, final_exercise_ids)
+    # Ensure we return the target number of exercises if possible
+    final_ids_for_template = final_exercise_ids[:num_exercises]
+
+    if not final_ids_for_template:
+         print(f"Final list of collaborative exercise IDs for '{template_title_base}' is empty for user {user_id}.")
+         return None
+
+    return _create_template(template_name, template_focus, final_ids_for_template)
 
 # --- Recommendation Endpoint (Updated for Multiple Templates) ---
 @app.route('/recommendations/workout/<user_id>', methods=['GET'])
