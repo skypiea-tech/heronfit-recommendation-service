@@ -181,35 +181,38 @@ def generate_full_body_template(user_id, user_exercises_details_df, all_exercise
         'Legs': 2, # Covers Quads, Hamstrings, Glutes etc.
     }
 
-    # Adjust target groups based on user goal
+    # Adjust target groups based on user goal to aim for a moderate total (around 7-9)
     if user_goal == 'build_muscle':
-        print(f"Adjusting Full Body template for goal: {user_goal}")
+        print(f"Adjusting Full Body template for goal: {user_goal} (aiming for 8-9 exercises)")
         target_groups['Chest'] = 2
         target_groups['Back'] = 2
-        target_groups['Legs'] = 3 # More leg volume for muscle building
-        target_groups['Shoulders'] = 2
-        # Keep biceps and triceps at 1 for a full body split
-        num_exercises = max(num_exercises, sum(target_groups.values())) # Ensure enough exercises to meet targets
+        target_groups['Legs'] = 2 # Keep legs at 2 for overall balance in moderate volume
+        target_groups['Shoulders'] = 1 # Reduce shoulders slightly in full body for balance
+        target_groups['Biceps'] = 1
+        target_groups['Triceps'] = 1
+        # Total = 2 + 2 + 1 + 1 + 1 + 2 = 9
+        num_exercises = 9
     elif user_goal == 'lose_weight':
-        print(f"Adjusting Full Body template for goal: {user_goal}")
+        print(f"Adjusting Full Body template for goal: {user_goal} (aiming for 7-8 exercises)")
         # Emphasize large muscle groups and compound movements for calorie burn
-        target_groups['Legs'] = 3
+        target_groups['Legs'] = 2
         target_groups['Back'] = 2
-        target_groups['Chest'] = 2
-        # Reduce isolation slightly, focus on compound for efficiency
-        target_groups['Biceps'] = 0 # Focus on compound movements that hit biceps/triceps
-        target_groups['Triceps'] = 0
-        # Ensure shoulders are still included as they are a large group
+        target_groups['Chest'] = 1
+        # Reduce isolation
+        target_groups['Biceps'] = 1
+        target_groups['Triceps'] = 1
         target_groups['Shoulders'] = 1
-        num_exercises = max(num_exercises, sum(target_groups.values())) # Ensure enough exercises to meet targets
+         # Total = 2 + 2 + 1 + 1 + 1 + 1 = 8
+        num_exercises = 8
     elif user_goal == 'general_fitness':
-        print(f"Using default Full Body template for goal: {user_goal}")
-        # Default distribution is generally good for overall fitness
+        print(f"Using default Full Body template for goal: {user_goal} (aiming for 7 exercises)")
+        # Default distribution aims for 7 exercises and is generally good for overall fitness
+        num_exercises = 7 # Ensure num_exercises matches default sum
         pass # Keep default target_groups
     else:
-         print(f"No specific goal or unhandled goal '{user_goal}', using default Full Body distribution.")
+         print(f"No specific goal or unhandled goal '{user_goal}', using default Full Body distribution (aiming for 7 exercises).")
+         num_exercises = 7 # Ensure num_exercises matches default sum
          pass # Keep default target_groups for None or unhandled goals
-
 
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
     return _create_template("Recommended Full Body", "General Full Body", exercise_ids)
@@ -229,25 +232,30 @@ def generate_push_template(user_id, user_exercises_details_df, all_exercises_df,
         'Triceps': 2,
     }
 
-    # Adjust target groups based on user goal
+    # Adjust target groups based on user goal to aim for a moderate total (around 6-8)
     if user_goal == 'build_muscle':
-        print(f"Adjusting Push template for goal: {user_goal}")
+        print(f"Adjusting Push template for goal: {user_goal} (aiming for 7-8 exercises)")
         target_groups['Chest'] = 3 # More chest volume
         target_groups['Shoulders'] = 3 # More shoulder volume
         target_groups['Triceps'] = 2 # Keep triceps volume as is
-        num_exercises = max(num_exercises, sum(target_groups.values()))
+        # Total = 3 + 3 + 2 = 8
+        num_exercises = 8
     elif user_goal == 'lose_weight':
-        print(f"Adjusting Push template for goal: {user_goal}")
+        print(f"Adjusting Push template for goal: {user_goal} (aiming for 6-7 exercises)")
         # Focus on compound movements that hit multiple push muscles
         target_groups['Chest'] = 2
         target_groups['Shoulders'] = 2
-        target_groups['Triceps'] = 1 # Slightly less triceps isolation
-        num_exercises = max(num_exercises, sum(target_groups.values()))
+        target_groups['Triceps'] = 2 # Keep triceps for balanced push
+        # Total = 2 + 2 + 2 = 6
+        num_exercises = 6
     elif user_goal == 'general_fitness':
-        print(f"Using default Push template for goal: {user_goal}")
+        print(f"Using default Push template for goal: {user_goal} (aiming for 6 exercises)")
+        # Default distribution aims for 6 exercises and is generally good for overall fitness
+        num_exercises = 6
         pass # Keep default target_groups
     else:
-         print(f"No specific goal or unhandled goal '{user_goal}', using default Push distribution.")
+         print(f"No specific goal or unhandled goal '{user_goal}', using default Push distribution (aiming for 6 exercises).")
+         num_exercises = 6
          pass # Keep default target_groups for None or unhandled goals
 
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
@@ -267,23 +275,28 @@ def generate_pull_template(user_id, user_exercises_details_df, all_exercises_df,
         'Biceps': 2,
     }
 
-    # Adjust target groups based on user goal
+    # Adjust target groups based on user goal to aim for a moderate total (around 6-8)
     if user_goal == 'build_muscle':
-        print(f"Adjusting Pull template for goal: {user_goal}")
+        print(f"Adjusting Pull template for goal: {user_goal} (aiming for 7-8 exercises)")
         target_groups['Back'] = 5 # More back volume
         target_groups['Biceps'] = 3 # More biceps volume
-        num_exercises = max(num_exercises, sum(target_groups.values()))
+        # Total = 5 + 3 = 8
+        num_exercises = 8
     elif user_goal == 'lose_weight':
-        print(f"Adjusting Pull template for goal: {user_goal}")
+        print(f"Adjusting Pull template for goal: {user_goal} (aiming for 6-7 exercises)")
         # Focus on compound back movements
-        target_groups['Back'] = 3 # Slightly less back isolation
-        target_groups['Biceps'] = 1 # Slightly less biceps isolation
-        num_exercises = max(num_exercises, sum(target_groups.values()))
+        target_groups['Back'] = 4 # Keep back volume for compound lifts
+        target_groups['Biceps'] = 2 # Keep biceps volume for balance
+        # Total = 4 + 2 = 6
+        num_exercises = 6
     elif user_goal == 'general_fitness':
-        print(f"Using default Pull template for goal: {user_goal}")
+        print(f"Using default Pull template for goal: {user_goal} (aiming for 6 exercises)")
+        # Default distribution aims for 6 exercises and is generally good for overall fitness
+        num_exercises = 6
         pass # Keep default target_groups
     else:
-         print(f"No specific goal or unhandled goal '{user_goal}', using default Pull distribution.")
+         print(f"No specific goal or unhandled goal '{user_goal}', using default Pull distribution (aiming for 6 exercises).")
+         num_exercises = 6
          pass # Keep default target_groups for None or unhandled goals
 
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
@@ -306,28 +319,41 @@ def generate_legs_template(user_id, user_exercises_details_df, all_exercises_df,
         'Legs': 1 # Add one general leg exercise if others are sparse
     }
 
-    # Adjust target groups based on user goal
+    # Adjust target groups based on user goal to aim for a moderate total (around 6-8)
     if user_goal == 'build_muscle':
-        print(f"Adjusting Legs template for goal: {user_goal}")
+        print(f"Adjusting Legs template for goal: {user_goal} (aiming for 7-8 exercises)")
         target_groups['Quadriceps'] = 3
         target_groups['Hamstrings'] = 3
         target_groups['Glutes'] = 2
-        target_groups['Calves'] = 2
-        num_exercises = max(num_exercises, sum(target_groups.values()))
+        target_groups['Calves'] = 1 # Keep calves at 1 for overall leg focus
+        # Total = 3 + 3 + 2 + 1 = 9 (Adjusting to 8)
+        target_groups['Glutes'] = 1 # Reduce glutes to 1 to get closer to 8
+        # Total = 3 + 3 + 1 + 1 = 8
+        num_exercises = 8
     elif user_goal == 'lose_weight':
-        print(f"Adjusting Legs template for goal: {user_goal}")
+        print(f"Adjusting Legs template for goal: {user_goal} (aiming for 6-7 exercises)")
         # Focus on compound leg movements for calorie burn
-        target_groups['Quadriceps'] = 3
-        target_groups['Hamstrings'] = 3
-        target_groups['Glutes'] = 2
-        target_groups['Calves'] = 1 # Slightly less focus on calves
-        num_exercises = max(num_exercises, sum(target_groups.values()))
+        target_groups['Quadriceps'] = 2
+        target_groups['Hamstrings'] = 2
+        target_groups['Glutes'] = 1
+        target_groups['Calves'] = 1
+        # Total = 2 + 2 + 1 + 1 = 6
+        num_exercises = 6
     elif user_goal == 'general_fitness':
-        print(f"Using default Legs template for goal: {user_goal}")
+        print(f"Using default Legs template for goal: {user_goal} (aiming for 6 exercises)")
+        # Default distribution aims for 6 exercises and is generally good for overall fitness
+        num_exercises = 6
         pass # Keep default target_groups
     else:
-         print(f"No specific goal or unhandled goal '{user_goal}', using default Legs distribution.")
+         print(f"No specific goal or unhandled goal '{user_goal}', using default Legs distribution (aiming for 6 exercises).")
+         num_exercises = 6
          pass # Keep default target_groups for None or unhandled goals
+
+    # Remove the general 'Legs' category if specific groups are targeted
+    if user_goal in ['build_muscle', 'lose_weight', 'general_fitness']:
+        if 'Legs' in target_groups:
+            del target_groups['Legs']
+            print("Removed general 'Legs' target as specific groups are prioritized.")
 
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
     return _create_template("Recommended Leg Day", "Quadriceps, Hamstrings, Glutes, Calves", exercise_ids)
