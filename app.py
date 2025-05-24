@@ -74,6 +74,20 @@ def fetch_user_history(user_id):
         print(f"Error fetching user history for user_id {user_id}: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
+# Add a function to fetch the user's goal
+def fetch_user_goal(user_id):
+    """Fetches the goal for a given user_id from the Supabase 'users' table."""
+    try:
+        response = supabase.table('users').select('goal').eq('id', user_id).single().execute()
+        if response.data and 'goal' in response.data:
+            return response.data['goal']
+        else:
+            print(f"No goal found for user_id: {user_id}")
+            return None
+    except Exception as e:
+        print(f"Error fetching user goal for user_id {user_id}: {e}")
+        return None
+
 # --- Workout Template Generation Logic ---
 def _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises_target):
     """Helper function to select exercises based on target muscle groups."""
@@ -138,7 +152,7 @@ def _create_template(name, focus, exercise_ids):
     print(f"Generated template: {template}")
     return template
 
-def generate_full_body_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=7):
+def generate_full_body_template(user_id, user_exercises_details_df, all_exercises_df, user_goal=None, num_exercises=7):
     """Generates a simple full-body workout template."""
     print(f"Attempting to generate Full Body template for user {user_id}")
     if all_exercises_df.empty: return None
@@ -156,10 +170,40 @@ def generate_full_body_template(user_id, user_exercises_details_df, all_exercise
         'Legs': 2, # Covers Quads, Hamstrings, Glutes etc.
     }
 
+    # Adjust target groups based on user goal
+    if user_goal == 'build_muscle':
+        print(f"Adjusting Full Body template for goal: {user_goal}")
+        target_groups['Chest'] = 2
+        target_groups['Back'] = 2
+        target_groups['Legs'] = 3 # More leg volume for muscle building
+        target_groups['Shoulders'] = 2
+        # Keep biceps and triceps at 1 for a full body split
+        num_exercises = max(num_exercises, sum(target_groups.values())) # Ensure enough exercises to meet targets
+    elif user_goal == 'lose_weight':
+        print(f"Adjusting Full Body template for goal: {user_goal}")
+        # Emphasize large muscle groups and compound movements for calorie burn
+        target_groups['Legs'] = 3
+        target_groups['Back'] = 2
+        target_groups['Chest'] = 2
+        # Reduce isolation slightly, focus on compound for efficiency
+        target_groups['Biceps'] = 0 # Focus on compound movements that hit biceps/triceps
+        target_groups['Triceps'] = 0
+        # Ensure shoulders are still included as they are a large group
+        target_groups['Shoulders'] = 1
+        num_exercises = max(num_exercises, sum(target_groups.values())) # Ensure enough exercises to meet targets
+    elif user_goal == 'general_fitness':
+        print(f"Using default Full Body template for goal: {user_goal}")
+        # Default distribution is generally good for overall fitness
+        pass # Keep default target_groups
+    else:
+         print(f"No specific goal or unhandled goal '{user_goal}', using default Full Body distribution.")
+         pass # Keep default target_groups for None or unhandled goals
+
+
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
     return _create_template("Recommended Full Body", "General Full Body", exercise_ids)
 
-def generate_push_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=6):
+def generate_push_template(user_id, user_exercises_details_df, all_exercises_df, user_goal=None, num_exercises=6):
     """Generates a push day workout template (Chest, Shoulders, Triceps)."""
     print(f"Attempting to generate Push template for user {user_id}")
     if all_exercises_df.empty: return None
@@ -174,10 +218,31 @@ def generate_push_template(user_id, user_exercises_details_df, all_exercises_df,
         'Triceps': 2,
     }
 
+    # Adjust target groups based on user goal
+    if user_goal == 'build_muscle':
+        print(f"Adjusting Push template for goal: {user_goal}")
+        target_groups['Chest'] = 3 # More chest volume
+        target_groups['Shoulders'] = 3 # More shoulder volume
+        target_groups['Triceps'] = 2 # Keep triceps volume as is
+        num_exercises = max(num_exercises, sum(target_groups.values()))
+    elif user_goal == 'lose_weight':
+        print(f"Adjusting Push template for goal: {user_goal}")
+        # Focus on compound movements that hit multiple push muscles
+        target_groups['Chest'] = 2
+        target_groups['Shoulders'] = 2
+        target_groups['Triceps'] = 1 # Slightly less triceps isolation
+        num_exercises = max(num_exercises, sum(target_groups.values()))
+    elif user_goal == 'general_fitness':
+        print(f"Using default Push template for goal: {user_goal}")
+        pass # Keep default target_groups
+    else:
+         print(f"No specific goal or unhandled goal '{user_goal}', using default Push distribution.")
+         pass # Keep default target_groups for None or unhandled goals
+
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
     return _create_template("Recommended Push Day", "Chest, Shoulders, Triceps", exercise_ids)
 
-def generate_pull_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=6):
+def generate_pull_template(user_id, user_exercises_details_df, all_exercises_df, user_goal=None, num_exercises=6):
     """Generates a pull day workout template (Back, Biceps)."""
     print(f"Attempting to generate Pull template for user {user_id}")
     if all_exercises_df.empty: return None
@@ -191,10 +256,29 @@ def generate_pull_template(user_id, user_exercises_details_df, all_exercises_df,
         'Biceps': 2,
     }
 
+    # Adjust target groups based on user goal
+    if user_goal == 'build_muscle':
+        print(f"Adjusting Pull template for goal: {user_goal}")
+        target_groups['Back'] = 5 # More back volume
+        target_groups['Biceps'] = 3 # More biceps volume
+        num_exercises = max(num_exercises, sum(target_groups.values()))
+    elif user_goal == 'lose_weight':
+        print(f"Adjusting Pull template for goal: {user_goal}")
+        # Focus on compound back movements
+        target_groups['Back'] = 3 # Slightly less back isolation
+        target_groups['Biceps'] = 1 # Slightly less biceps isolation
+        num_exercises = max(num_exercises, sum(target_groups.values()))
+    elif user_goal == 'general_fitness':
+        print(f"Using default Pull template for goal: {user_goal}")
+        pass # Keep default target_groups
+    else:
+         print(f"No specific goal or unhandled goal '{user_goal}', using default Pull distribution.")
+         pass # Keep default target_groups for None or unhandled goals
+
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
     return _create_template("Recommended Pull Day", "Back, Biceps", exercise_ids)
 
-def generate_legs_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=6):
+def generate_legs_template(user_id, user_exercises_details_df, all_exercises_df, user_goal=None, num_exercises=6):
     """Generates a leg day workout template."""
     print(f"Attempting to generate Legs template for user {user_id}")
     if all_exercises_df.empty: return None
@@ -211,31 +295,83 @@ def generate_legs_template(user_id, user_exercises_details_df, all_exercises_df,
         'Legs': 1 # Add one general leg exercise if others are sparse
     }
 
+    # Adjust target groups based on user goal
+    if user_goal == 'build_muscle':
+        print(f"Adjusting Legs template for goal: {user_goal}")
+        target_groups['Quadriceps'] = 3
+        target_groups['Hamstrings'] = 3
+        target_groups['Glutes'] = 2
+        target_groups['Calves'] = 2
+        num_exercises = max(num_exercises, sum(target_groups.values()))
+    elif user_goal == 'lose_weight':
+        print(f"Adjusting Legs template for goal: {user_goal}")
+        # Focus on compound leg movements for calorie burn
+        target_groups['Quadriceps'] = 3
+        target_groups['Hamstrings'] = 3
+        target_groups['Glutes'] = 2
+        target_groups['Calves'] = 1 # Slightly less focus on calves
+        num_exercises = max(num_exercises, sum(target_groups.values()))
+    elif user_goal == 'general_fitness':
+        print(f"Using default Legs template for goal: {user_goal}")
+        pass # Keep default target_groups
+    else:
+         print(f"No specific goal or unhandled goal '{user_goal}', using default Legs distribution.")
+         pass # Keep default target_groups for None or unhandled goals
+
     exercise_ids = _select_exercises_for_groups(target_groups, available_exercises, user_done_exercise_ids, num_exercises)
     return _create_template("Recommended Leg Day", "Quadriceps, Hamstrings, Glutes, Calves", exercise_ids)
 
 # --- Collaborative Filtering Functions ---
-def fetch_exercise_frequencies_from_other_users(exclude_user_id_str):
+def fetch_exercise_frequencies_from_other_users(exclude_user_id_str, user_goal):
     """
-    Fetches exercise frequencies from all users, excluding the specified user.
+    Fetches exercise frequencies from all users with the same goal,
+    excluding the specified user.
     Returns a DataFrame with 'exercise_id' and 'frequency'.
     """
     try:
-        workouts_resp = supabase.table('workouts').select('id, user_id').execute()
+        # First, get the IDs of users with the same goal, excluding the current user
+        if user_goal:
+            users_resp = supabase.table('users').select('id') \
+                .eq('goal', user_goal) \
+                .neq('id', exclude_user_id_str) \
+                .execute()
+            if not users_resp.data:
+                print(f"No other users found with goal: {user_goal}")
+                return pd.DataFrame()
+            other_user_ids_with_goal = [u['id'] for u in users_resp.data]
+            if not other_user_ids_with_goal:
+                print(f"No other user IDs found with goal: {user_goal}")
+                return pd.DataFrame()
+        else:
+            # If no goal is provided, fetch all other user IDs
+            print("User goal not specified, fetching exercise frequency from ALL other users.")
+            users_resp = supabase.table('users').select('id') \
+                 .neq('id', exclude_user_id_str) \
+                 .execute()
+            if not users_resp.data:
+                print("No other users found.")
+                return pd.DataFrame()
+            other_user_ids_with_goal = [u['id'] for u in users_resp.data]
+            if not other_user_ids_with_goal:
+                print("No other user IDs found.")
+                return pd.DataFrame()
+
+
+        # Now fetch workouts only for those users
+        workouts_resp = supabase.table('workouts').select('id, user_id') \
+            .in_('user_id', other_user_ids_with_goal) \
+            .execute()
+
         if not workouts_resp.data:
-            print("No workouts found at all for collaborative filtering.")
+            print(f"No workouts found for other users with goal {user_goal}.")
             return pd.DataFrame()
         workouts_df = pd.DataFrame(workouts_resp.data)
 
-        other_users_workouts_df = workouts_df[workouts_df['user_id'] != exclude_user_id_str]
-        if other_users_workouts_df.empty:
-            print(f"No workouts found for users other than {exclude_user_id_str}")
-            return pd.DataFrame()
-
-        other_user_workout_ids = other_users_workouts_df['id'].tolist()
+        # The rest of the logic remains the same
+        other_user_workout_ids = workouts_df['id'].tolist()
         if not other_user_workout_ids:
-             print(f"No workout IDs found for other users.")
-             return pd.DataFrame()
+            print(f"No workout IDs found for other users with goal {user_goal}.")
+            return pd.DataFrame()
 
         all_workout_exercises_resp = supabase.table('workout_exercises').select('exercise_id, workout_id').execute()
         if not all_workout_exercises_resp.data:
@@ -248,9 +384,9 @@ def fetch_exercise_frequencies_from_other_users(exclude_user_id_str):
         ]
 
         if relevant_workout_exercises_df.empty:
-            print(f"No exercises found in workouts of other users.")
+            print(f"No exercises found in workouts of other users with goal {user_goal}.")
             return pd.DataFrame()
-        
+
         if 'exercise_id' not in relevant_workout_exercises_df.columns:
             print("Error: 'exercise_id' column missing from other users' workout exercises.")
             return pd.DataFrame()
@@ -260,17 +396,17 @@ def fetch_exercise_frequencies_from_other_users(exclude_user_id_str):
         return exercise_counts
 
     except Exception as e:
-        print(f"Error fetching exercise frequencies from other users: {e}")
+        print(f"Error fetching exercise frequencies from other users (with goal filter): {e}")
         return pd.DataFrame()
 
-def generate_collaborative_template(user_id, user_exercises_details_df, all_exercises_df, num_exercises=5):
+def generate_collaborative_template(user_id, user_exercises_details_df, all_exercises_df, user_goal=None, num_exercises=5):
     """Generates a workout template based on exercises popular among other users."""
     print(f"Attempting to generate Collaborative template for user {user_id}")
 
-    other_users_exercise_freq_df = fetch_exercise_frequencies_from_other_users(user_id)
+    other_users_exercise_freq_df = fetch_exercise_frequencies_from_other_users(user_id, user_goal) # Pass the user_goal
 
     if other_users_exercise_freq_df.empty or 'exercise_id' not in other_users_exercise_freq_df.columns:
-        print(f"No exercise frequency data found from other users for collaborative filtering for user {user_id}.")
+        print(f"No exercise frequency data found from other users (with goal {user_goal}) for collaborative filtering for user {user_id}.")
         return None
 
     user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
@@ -282,14 +418,14 @@ def generate_collaborative_template(user_id, user_exercises_details_df, all_exer
     if 'id' not in all_exercises_df.columns:
         print("Error: 'id' column missing in all_exercises_df. Cannot validate collaborative candidates.")
         return None
-    
+
     all_valid_exercise_ids = set(all_exercises_df['id'])
     candidate_exercises_df = candidate_exercises_df[
         candidate_exercises_df['exercise_id'].isin(all_valid_exercise_ids)
     ]
 
     if candidate_exercises_df.empty:
-        print(f"No new, valid collaborative exercises found for user {user_id} after filtering.")
+        print(f"No new, valid collaborative exercises found for user {user_id} (with goal {user_goal}) after filtering.")
         return None
 
     if 'frequency' not in candidate_exercises_df.columns:
@@ -299,8 +435,8 @@ def generate_collaborative_template(user_id, user_exercises_details_df, all_exer
     selected_exercises_df = candidate_exercises_df.sort_values(by='frequency', ascending=False).head(num_exercises)
     collaborative_exercise_ids = selected_exercises_df['exercise_id'].tolist()
 
-    template_name = "Popular With Others"
-    template_focus = "Community Favorites"
+    template_name = "Popular With Others (Same Goal)" if user_goal else "Popular With Others"
+    template_focus = f"Community Favorites ({user_goal})" if user_goal else "Community Favorites"
 
     if len(collaborative_exercise_ids) < num_exercises:
         needed_more = num_exercises - len(collaborative_exercise_ids)
@@ -321,8 +457,8 @@ def generate_collaborative_template(user_id, user_exercises_details_df, all_exer
                     filler_exercise_ids = filler_exercises_df['id'].tolist()
                     collaborative_exercise_ids.extend(filler_exercise_ids)
                     print(f"Added {len(filler_exercise_ids)} random filler exercises.")
-                    template_name = "Community & New Picks"
-                    template_focus = "Popular & Randomly Added"
+                    template_name = f"Popular With Others ({user_goal} & New Picks)" if user_goal else "Community & New Picks"
+                    template_focus = f"Popular ({user_goal}) & Randomly Added" if user_goal else "Popular & Randomly Added"
                 else:
                     print("No filler exercises could be sampled (num_to_sample was 0).")
             else:
@@ -336,36 +472,63 @@ def generate_collaborative_template(user_id, user_exercises_details_df, all_exer
         return None
 
     return _create_template(
-        template_name, 
-        template_focus, 
+        template_name,
+        template_focus,
         collaborative_exercise_ids
     )
 
 # --- Time-Filtered Collaborative Filtering Functions ---
-def fetch_exercise_frequencies_with_time_filter(exclude_user_id_str, start_date_iso, end_date_iso):
+def fetch_exercise_frequencies_with_time_filter(exclude_user_id_str, start_date_iso, end_date_iso, user_goal):
     """
-    Fetches exercise frequencies from other users within a specific time window.
+    Fetches exercise frequencies from other users with the same goal
+    within a specific time window.
     Returns a DataFrame with 'exercise_id' and 'frequency'.
     """
     try:
-        # Fetch workouts and filter by user_id and timestamp
+        # First, get the IDs of users with the same goal, excluding the current user
+        if user_goal:
+            users_resp = supabase.table('users').select('id') \
+                .eq('goal', user_goal) \
+                .neq('id', exclude_user_id_str) \
+                .execute()
+            if not users_resp.data:
+                print(f"No other users found with goal: {user_goal} in time-filtered search.")
+                return pd.DataFrame()
+            other_user_ids_with_goal = [u['id'] for u in users_resp.data]
+            if not other_user_ids_with_goal:
+                print(f"No other user IDs found with goal: {user_goal} in time-filtered search.")
+                return pd.DataFrame()
+        else:
+            # If no goal is provided, fetch all other user IDs
+            print("User goal not specified, fetching time-filtered exercise frequency from ALL other users.")
+            users_resp = supabase.table('users').select('id') \
+                 .neq('id', exclude_user_id_str) \
+                 .execute()
+            if not users_resp.data:
+                print("No other users found in time-filtered search.")
+                return pd.DataFrame()
+            other_user_ids_with_goal = [u['id'] for u in users_resp.data]
+            if not other_user_ids_with_goal:
+                print("No other user IDs found in time-filtered search.")
+                return pd.DataFrame()
+
+        # Fetch workouts for those users within the time window
         workouts_resp = supabase.table('workouts').select('id, user_id, timestamp') \
-            .neq('user_id', exclude_user_id_str) \
+            .in_('user_id', other_user_ids_with_goal) \
             .gte('timestamp', start_date_iso) \
             .lte('timestamp', end_date_iso) \
             .execute()
 
         if not workouts_resp.data:
-            print(f"No workouts found for other users between {start_date_iso} and {end_date_iso}.")
-            return pd.DataFrame()
-        
-        other_user_workout_ids = [w['id'] for w in workouts_resp.data]
-        if not other_user_workout_ids:
-            print(f"No workout IDs found for other users in the time window.")
+            print(f"No workouts found for other users with goal {user_goal} between {start_date_iso} and {end_date_iso}.")
             return pd.DataFrame()
 
-        # Fetch all workout_exercises (consider optimizing if this table is huge)
-        # For now, fetching all and then filtering is simpler than complex Supabase join via API
+        other_user_workout_ids = [w['id'] for w in workouts_resp.data]
+        if not other_user_workout_ids:
+            print(f"No workout IDs found for other users with goal {user_goal} in the time window.")
+            return pd.DataFrame()
+
+        # Fetch all workout_exercises
         all_workout_exercises_resp = supabase.table('workout_exercises').select('exercise_id, workout_id').execute()
         if not all_workout_exercises_resp.data:
             print("No workout_exercises found at all for time-filtered collaborative filtering.")
@@ -377,9 +540,9 @@ def fetch_exercise_frequencies_with_time_filter(exclude_user_id_str, start_date_
         ]
 
         if relevant_workout_exercises_df.empty:
-            print(f"No exercises found in workouts of other users within the time window.")
+            print(f"No exercises found in workouts of other users with goal {user_goal} within the time window.")
             return pd.DataFrame()
-        
+
         if 'exercise_id' not in relevant_workout_exercises_df.columns:
             print("Error: 'exercise_id' column missing from other users' workout exercises (time-filtered).")
             return pd.DataFrame()
@@ -389,26 +552,26 @@ def fetch_exercise_frequencies_with_time_filter(exclude_user_id_str, start_date_
         return exercise_counts
 
     except Exception as e:
-        print(f"Error fetching time-filtered exercise frequencies: {e}")
+        print(f"Error fetching time-filtered exercise frequencies (with goal filter): {e}")
         return pd.DataFrame()
 
-def generate_popular_recent_template(user_id, user_exercises_details_df, all_exercises_df, time_delta, template_title_base, template_focus_base, num_exercises=5):
+def generate_popular_recent_template(user_id, user_exercises_details_df, all_exercises_df, time_delta, template_title_base, template_focus_base, user_goal=None, num_exercises=5):
     """Generates a template based on exercises popular among other users in a recent time window."""
-    print(f"Attempting to generate '{template_title_base}' template for user {user_id} (timedelta: {time_delta.days} days)")
+    print(f"Attempting to generate '{template_title_base}' template for user {user_id} (timedelta: {time_delta.days} days, goal: {user_goal})")
 
     end_date = datetime.utcnow()
     start_date = end_date - time_delta
     start_date_iso = start_date.isoformat()
     end_date_iso = end_date.isoformat()
 
-    recent_exercise_freq_df = fetch_exercise_frequencies_with_time_filter(user_id, start_date_iso, end_date_iso)
+    recent_exercise_freq_df = fetch_exercise_frequencies_with_time_filter(user_id, start_date_iso, end_date_iso, user_goal) # Pass the user_goal
 
     if recent_exercise_freq_df.empty or 'exercise_id' not in recent_exercise_freq_df.columns:
-        print(f"No recent exercise frequency data found for '{template_title_base}' for user {user_id}.")
+        print(f"No recent exercise frequency data found for '{template_title_base}' for user {user_id} (with goal {user_goal}).")
         return None
 
     user_done_exercise_ids = set(user_exercises_details_df['id']) if not user_exercises_details_df.empty and 'id' in user_exercises_details_df.columns else set()
-    
+
     candidate_exercises_df = recent_exercise_freq_df[
         ~recent_exercise_freq_df['exercise_id'].isin(user_done_exercise_ids)
     ]
@@ -416,14 +579,14 @@ def generate_popular_recent_template(user_id, user_exercises_details_df, all_exe
     if 'id' not in all_exercises_df.columns:
         print(f"Error: 'id' column missing in all_exercises_df. Cannot validate for '{template_title_base}'.")
         return None
-    
+
     all_valid_exercise_ids = set(all_exercises_df['id'])
     candidate_exercises_df = candidate_exercises_df[
         candidate_exercises_df['exercise_id'].isin(all_valid_exercise_ids)
     ]
 
     if candidate_exercises_df.empty:
-        print(f"No new, valid recent exercises for '{template_title_base}' for user {user_id} after filtering.")
+        print(f"No new, valid recent exercises for '{template_title_base}' for user {user_id} (with goal {user_goal}) after filtering.")
         return None
 
     if 'frequency' not in candidate_exercises_df.columns:
@@ -433,13 +596,13 @@ def generate_popular_recent_template(user_id, user_exercises_details_df, all_exe
     selected_exercises_df = candidate_exercises_df.sort_values(by='frequency', ascending=False).head(num_exercises)
     final_exercise_ids = selected_exercises_df['exercise_id'].tolist()
 
-    template_name = template_title_base
-    template_focus = template_focus_base
+    template_name = template_title_base + (f" ({user_goal})" if user_goal else "")
+    template_focus = template_focus_base + (f" ({user_goal})" if user_goal else "")
 
     if len(final_exercise_ids) < num_exercises:
         needed_more = num_exercises - len(final_exercise_ids)
         print(f"Recent popular selection for '{template_title_base}' yielded {len(final_exercise_ids)}, needing {needed_more} more.")
-        
+
         ids_to_exclude_from_filler = set(final_exercise_ids).union(user_done_exercise_ids)
         if 'id' in all_exercises_df.columns:
             available_for_filler_df = all_exercises_df[~all_exercises_df['id'].isin(ids_to_exclude_from_filler)]
@@ -450,8 +613,11 @@ def generate_popular_recent_template(user_id, user_exercises_details_df, all_exe
                     filler_ids = filler_exercises_df['id'].tolist()
                     final_exercise_ids.extend(filler_ids)
                     print(f"Added {len(filler_ids)} random filler exercises to '{template_title_base}'.")
-                    template_name = f"{template_title_base} & New Ideas"
-                    template_focus = f"{template_focus_base} & Randomly Added"
+                    template_name = f"{template_title_base} & New Ideas" + (f" ({user_goal})" if user_goal else "")
+                    template_focus = f"{template_focus_base} & Randomly Added" + (f" ({user_goal})" if user_goal else "")
+
+                else:
+                    print("No filler exercises could be sampled (num_to_sample was 0).")
             else:
                 print(f"No exercises available for random filling for '{template_title_base}'.")
         else:
@@ -473,6 +639,7 @@ def get_workout_recommendations(user_id):
     # --- Fetch data ---
     all_exercises_df = fetch_all_exercises()
     user_workout_exercises_df, user_exercises_details_df = fetch_user_history(user_id)
+    user_goal = fetch_user_goal(user_id) # Fetch the user's goal
 
     if all_exercises_df.empty:
          print("Error: Could not fetch master exercise list from Supabase.")
@@ -495,7 +662,8 @@ def get_workout_recommendations(user_id):
         template = generator(
             user_id,
             user_exercises_details_df,
-            all_exercises_df
+            all_exercises_df,
+            user_goal=user_goal # Pass the user's goal
         )
         if template:
             content_templates.append(template)
@@ -505,7 +673,8 @@ def get_workout_recommendations(user_id):
         user_id,
         user_exercises_details_df,
         all_exercises_df,
-        num_exercises=5 
+        num_exercises=5,
+        user_goal=user_goal # Pass the user's goal
     )
     if general_collaborative_template:
         collaborative_templates_generated.append(general_collaborative_template)
@@ -518,7 +687,8 @@ def get_workout_recommendations(user_id):
         time_delta=timedelta(days=7),
         template_title_base="Popular This Week",
         template_focus_base="Trending Weekly",
-        num_exercises=5
+        num_exercises=5,
+        user_goal=user_goal # Pass the user's goal
     )
     if weekly_popular_template:
         collaborative_templates_generated.append(weekly_popular_template)
@@ -530,7 +700,8 @@ def get_workout_recommendations(user_id):
         time_delta=timedelta(days=30),
         template_title_base="Popular This Month",
         template_focus_base="Trending Monthly",
-        num_exercises=5
+        num_exercises=5,
+        user_goal=user_goal # Pass the user's goal
     )
     if monthly_popular_template:
         collaborative_templates_generated.append(monthly_popular_template)
@@ -542,8 +713,8 @@ def get_workout_recommendations(user_id):
     if not content_templates and not collaborative_templates_generated:
         print(f"No workout templates could be generated for user {user_id}.")
         return jsonify({
-            "message": "No specific workout recommendations available at this time.", 
-            "for_you_recommendations": [], 
+            "message": "No specific workout recommendations available at this time.",
+            "for_you_recommendations": [],
             "community_recommendations": []
         }), 200
 
