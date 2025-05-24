@@ -686,7 +686,7 @@ def get_workout_recommendations(user_id):
         user_id,
         user_exercises_details_df,
         all_exercises_df,
-        num_exercises=5,
+        num_exercises=6,
         user_goal=user_goal # Pass the user's goal
     )
     if general_collaborative_template:
@@ -700,7 +700,7 @@ def get_workout_recommendations(user_id):
         time_delta=timedelta(days=7),
         template_title_base="Popular This Week",
         template_focus_base="Trending Weekly",
-        num_exercises=5,
+        num_exercises=6,
         user_goal=user_goal # Pass the user's goal
     )
     if weekly_popular_template:
@@ -713,7 +713,7 @@ def get_workout_recommendations(user_id):
         time_delta=timedelta(days=30),
         template_title_base="Popular This Month",
         template_focus_base="Trending Monthly",
-        num_exercises=5,
+        num_exercises=6,
         user_goal=user_goal # Pass the user's goal
     )
     if monthly_popular_template:
